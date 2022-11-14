@@ -98,7 +98,7 @@ public:
     void insertMarketOrder(Order& order) {
         int totalTraded = 0;
         if (order.isBuy()) {
-            while (!order.getQuantity() || !sellOrderbook.empty()) {
+            while (order.getQuantity() && !sellOrderbook.empty()) {
                 auto sellOrder = sellOrderbook.begin();
                 int quantityTraded = min(order.getQuantity(), sellOrder->getQuantity());
                 int price = sellOrder->getPrice();
@@ -107,7 +107,7 @@ public:
                 totalTraded += price * quantityTraded;
             }
         } else {
-            while (!order.getQuantity() || !buyOrderbook.empty()) {
+            while (order.getQuantity() && !buyOrderbook.empty()) {
                 auto buyOrder = buyOrderbook.begin();
                 int quantityTraded= min(order.getQuantity(), buyOrder->getQuantity());
                 int price = buyOrder->getPrice();
