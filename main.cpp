@@ -47,38 +47,36 @@ public:
 };
 
 class Orderbook {
-    unordered_map<string, multiset<Order, BuyComparator>::iterator> buyOrders;
-    unordered_map<string, multiset<Order, SellComparator>::iterator> sellOrders;
+    using BuyOrders = unordered_map<string, multiset<Order, BuyComparator>::iterator>;
+    using SellOrders = unordered_map<string, multiset<Order, SellComparator>::iterator>;
+    BuyOrders buyOrders;
+    SellOrders sellOrders;
+
+    using BuyOrderbook = multiset<Order, BuyComparator>;
+    using SellOrderbook = multiset<Order, SellComparator>;
+    BuyOrderbook buyOrderbook;
+    SellOrderbook sellOrderbook;
 
 public:
-    multiset<Order, BuyComparator> buyOrderbook;
-    multiset<Order, SellComparator> sellOrderbook;
-
-    void deductSellQuantity(multiset<Order, SellComparator>::iterator order, int value) {
-        order->deductQuantity(value);
-        if (order->getQuantity() == 0) {
-            sellOrderbook.erase(sellOrderbook.begin());
-            sellOrders.erase(order->getOrderId());
+    template<typename T1, typename T2>
+    void deductQuantity(T1& orderbook, T2& orders, int value) {
+        orderbook.begin()->deductQuantity(value);
+        if (!orderbook.begin()->getQuantity()) {
+            orderbook.erase(orderbook.begin());
+            orders.erase(orderbook.begin()->getOrderId());
         }
     }
 
-    void deductBuyQuantity(multiset<Order, BuyComparator>::iterator order, int value) {
-        order->deductQuantity(value);
-        if (order->getQuantity() == 0) {
-            buyOrderbook.erase(buyOrderbook.begin());
-            buyOrders.erase(order->getOrderId());
-        }
+    template<typename T1, typename T2>
+    void insertToOrderbook(T1& orderbook, T2& orders, Order& order) {
+        orderbook.insert(order);
+        orders[order.getOrderId()] = orderbook.find(order);
     }
 
     void insertLimitOrder(Order& order) {
         // inserting the order into respective books
-        if (order.isBuy()) {
-            buyOrderbook.insert(order);
-            buyOrders[order.getOrderId()] = buyOrderbook.find(order);
-        } else {
-            sellOrderbook.insert(order);
-            sellOrders[order.getOrderId()] = sellOrderbook.find(order);
-        }
+        if (order.isBuy()) insertToOrderbook<BuyOrderbook, BuyOrders>(buyOrderbook, buyOrders, order);
+        else insertToOrderbook<SellOrderbook, SellOrders>(sellOrderbook, sellOrders, order);
         int totalTraded = 0;
         // match the orders if possible
         while (!buyOrderbook.empty() && !sellOrderbook.empty() 
@@ -88,35 +86,30 @@ public:
                 int quantityTraded = min(buyOrder->getQuantity(), sellOrder->getQuantity());
                 int priceTraded = buyOrder->getPrice();
                 // remove from orderbook if quantity is depleted
-                deductBuyQuantity(buyOrder, quantityTraded);
-                deductSellQuantity(sellOrder, quantityTraded);
+                deductQuantity<BuyOrderbook, BuyOrders>(buyOrderbook, buyOrders, quantityTraded);
+                deductQuantity<SellOrderbook, SellOrders>(sellOrderbook, sellOrders, quantityTraded);
                 totalTraded += quantityTraded * priceTraded;
             }   
         cout << totalTraded << "\n";
     }
+    
+    template<typename T1, typename T2>
+    int matchMarketOrders(T1& orderbook, T2& orders, Order& order) {
+        int totalTraded = 0;
+        while (order.getQuantity() && !orderbook.empty()) {
+            int quantityTraded = min(order.getQuantity(), orderbook.begin()->getQuantity());
+            int price = orderbook.begin()->getPrice();
+            deductQuantity<T1, T2>(orderbook, orders, quantityTraded);
+            order.deductQuantity(quantityTraded);
+            totalTraded += price * quantityTraded;
+        }
+        return totalTraded;
+    }
 
     void insertMarketOrder(Order& order) {
-        int totalTraded = 0;
-        if (order.isBuy()) {
-            while (order.getQuantity() && !sellOrderbook.empty()) {
-                auto sellOrder = sellOrderbook.begin();
-                int quantityTraded = min(order.getQuantity(), sellOrder->getQuantity());
-                int price = sellOrder->getPrice();
-                deductSellQuantity(sellOrder, quantityTraded);
-                order.deductQuantity(quantityTraded);
-                totalTraded += price * quantityTraded;
-            }
-        } else {
-            while (order.getQuantity() && !buyOrderbook.empty()) {
-                auto buyOrder = buyOrderbook.begin();
-                int quantityTraded= min(order.getQuantity(), buyOrder->getQuantity());
-                int price = buyOrder->getPrice();
-                deductBuyQuantity(buyOrder, quantityTraded);
-                order.deductQuantity(quantityTraded);
-                totalTraded += price * quantityTraded;
-            }
-        }
-        cout << totalTraded << "\n";
+        //int totalTraded = 0;
+        if (order.isBuy()) cout << matchMarketOrders<SellOrderbook, SellOrders>(sellOrderbook, sellOrders, order) << "\n";
+        else cout << matchMarketOrders<BuyOrderbook, BuyOrders>(buyOrderbook, buyOrders, order) << "\n";
     }
 
     void cancelOrder(string orderId) {
@@ -132,19 +125,12 @@ public:
 
     void printOrderbook() {
         cout << "B: ";
-        for (auto &order : buyOrderbook) {
-            cout << order << " ";
-        }
-        cout << "\n";
-        cout << "S: ";
-        for (auto &order : sellOrderbook) {
-            cout << order << " ";
-        }
+        for (auto &order : buyOrderbook) cout << order << " ";
+        cout << "\nS: ";
+        for (auto &order : sellOrderbook) cout << order << " ";
         cout << "\n";
     }
 };
-
-
 
 int main() {
     string input;
@@ -158,9 +144,8 @@ int main() {
             orderbook.cancelOrder(orderId);
         }
         else if (command == "SUB") {
-            string type; ss >> type;
-            string side, orderId, quantity;
-            ss >> side >> orderId >> quantity;
+            string type, side, orderId, quantity;
+            ss >> type >> side >> orderId >> quantity;
             Side s = side == "B" ? Side::B : Side::S;
             if (type == "MO") {
                 Order order(s, orderId, stoi(quantity), 0);
